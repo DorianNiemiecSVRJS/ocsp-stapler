@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Error};
 use base64::prelude::*;
-use bytes::Bytes;
 use http::{header::CONTENT_TYPE, StatusCode};
-use rasn::types::Oid;
+use num_bigint::BigInt;
+use rasn::types::{OctetString, Oid};
 use rasn_ocsp::{
     BasicOcspResponse, CertId, CertStatus, OcspRequest, OcspResponse, OcspResponseStatus, Request,
     TbsRequest, Version,
@@ -77,14 +77,15 @@ fn prepare_ocsp_request(cert: &[u8], issuer: &[u8]) -> Result<(OcspRequest, Url)
     };
 
     // Calculate the hashes required for OCSP request
-    let issuer_name_hash = Bytes::copy_from_slice(Sha1::digest(cert.issuer.as_raw()).as_slice());
+    let issuer_name_hash = OctetString::from_slice(Sha1::digest(cert.issuer.as_raw()).as_slice());
     let issuer_key_hash =
-        Bytes::copy_from_slice(Sha1::digest(&issuer.public_key().subject_public_key).as_slice());
+        OctetString::from_slice(Sha1::digest(&issuer.public_key().subject_public_key).as_slice());
 
     // Prepare the request
+    let serial_number: BigInt = cert.serial.clone().into();
     let req_cert = CertId {
         hash_algorithm,
-        serial_number: cert.serial.clone().into(),
+        serial_number: serial_number.into(),
         issuer_name_hash,
         issuer_key_hash,
     };
@@ -246,6 +247,7 @@ pub(crate) mod test {
 
     use hex_literal::hex;
     use httptest::{matchers::*, responders::*, Expectation, Server};
+    use rasn::types::{Integer, OctetString};
     use rustls::{crypto::ring, sign::CertifiedKey};
 
     const OCSP_REQUEST: &[u8] = include_bytes!("../test/ocsp_request.bin");
@@ -265,16 +267,18 @@ pub(crate) mod test {
                                 .to_owned(),
                             parameters: None,
                         },
-                        issuer_name_hash: Bytes::from(
+                        issuer_name_hash: OctetString::from(
                             &hex!("36175FAA02C887BDD95CA13549512D1E97FADFA9")[..],
                         ),
-                        issuer_key_hash: Bytes::from(
+                        issuer_key_hash: OctetString::from(
                             &hex!("6691287B8D8654BAF6203197AEC491E9AFB70BCB")[..],
                         ),
-                        serial_number: num_bigint::BigInt::from_str(
-                            "3819096869935823013274658159093914787918510",
-                        )
-                        .unwrap(),
+                        serial_number: Integer::from(
+                            num_bigint::BigInt::from_str(
+                                "3819096869935823013274658159093914787918510",
+                            )
+                            .unwrap(),
+                        ),
                     },
                     single_request_extensions: None,
                 }],
